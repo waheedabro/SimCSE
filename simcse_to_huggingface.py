@@ -1,5 +1,5 @@
 """
-Convert SimCSE's checkpoints to Huggingface style.
+test Convert SimCSE's checkpoints to Huggingface style.
 """
 
 import argparse
