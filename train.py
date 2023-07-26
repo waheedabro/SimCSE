@@ -310,6 +310,84 @@ def main():
     else:
         datasets = load_dataset(extension, data_files=data_files, cache_dir="./data/")
 
+    #waheed code load echtr dataset
+
+    train_dataset = load_dataset("lex_glue", name="ecthr_a", split="train", data_dir='data')
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+
+    max_seg_length = 128  # "help": "The maximum segment (paragraph) length to be considered. Segments longer " "than this will be truncated, sequences shorter will be padded."
+    max_segments = 6  # "The maximum number of segments (paragraphs) to be considered. Sequences longer " "than this will be truncated, sequences shorter will be padded."
+    label_list = list(range(10))
+    num_labels = len(label_list)
+    padding = "max_length"
+    def prepare_features_update(examples):
+        # padding = longest (default)
+        #   If no sentence in the batch exceed the max length, then use
+        #   the max sentence length in the batch, otherwise use the
+        #   max sentence length in the argument and truncate those that
+        #   exceed the max length.
+        # padding = max_length (when pad_to_max_length, for pressure test)
+        #   All sentences are padded/truncated to data_args.max_seq_length.
+        total = len(examples["text"])
+        features = {'input_ids': [], 'attention_mask': [], 'token_type_ids': []}
+
+        case_template = [[0] * max_seg_length]  # prepare the empty paragragh to be added if short document [[0, 0, 0, 0, 0, 0,
+
+        for idx, cases in enumerate(examples['text']):
+            num_paragraphs = cases[:max_segments]
+            anchor_case_features = tokenizer(num_paragraphs, padding=padding, max_length=max_seg_length, truncation=True)
+
+            found_positive = False
+            found_negative = False
+
+            while (found_positive != True or found_negative != True):
+                    random_id = random.randrange(len(examples['text']))
+                    num_paragraphs = examples['text'][random_id][:max_segments]
+                    if bool(examples['labels'][idx]) is False:
+                        if bool(examples['labels'][random_id]) is False and found_positive == False :
+                            found_positive = True
+                            positive_case_features = tokenizer(num_paragraphs, padding=padding, max_length=max_seg_length, truncation=True)
+
+                        elif bool(examples['labels'][random_id]) is True and found_negative == False:
+                            negative_case_features = tokenizer(num_paragraphs, padding=padding, max_length=max_seg_length, truncation=True)
+                            found_negative = True
+                    else:
+                        for label in examples['labels'][idx]:
+                            for random_label in examples['labels'][random_id]:
+                                if random_label == label and found_positive is False:
+                                    found_positive = True
+                                    positive_case_features = tokenizer(num_paragraphs, padding=padding, max_length=max_seg_length, truncation=True)
+                                    break
+                                elif found_negative is False and random_label != label:
+                                    negative_case_features = tokenizer(num_paragraphs, padding=padding, max_length=max_seg_length, truncation=True)
+                                    found_negative = True
+
+            features['input_ids'].append(
+            [anchor_case_features['input_ids'] + case_template * (max_segments - len(anchor_case_features['input_ids'])),
+            positive_case_features['input_ids'] + case_template * (max_segments - len(positive_case_features['input_ids'])),
+            negative_case_features['input_ids'] + case_template * (max_segments - len(negative_case_features['input_ids']))
+            ])
+
+            features['attention_mask'].append(
+            [anchor_case_features['attention_mask'] + case_template * (max_segments - len(anchor_case_features['input_ids'])),
+            positive_case_features['attention_mask'] + case_template * (max_segments - len(positive_case_features['attention_mask'])),
+            negative_case_features['attention_mask'] + case_template * (max_segments - len(negative_case_features['attention_mask']))
+            ])
+
+            features['token_type_ids'].append(
+            [anchor_case_features['token_type_ids'] + case_template * (max_segments - len(anchor_case_features['input_ids'])),
+            positive_case_features['token_type_ids'] + case_template * (max_segments - len(positive_case_features['input_ids'])),
+            negative_case_features['token_type_ids'] + case_template * (max_segments - len(negative_case_features['input_ids']))
+            ])
+        return features
+    train_dataset = train_dataset.select(range(100))
+
+    train_dataset = train_dataset.map(
+        prepare_features_update,
+        batched=True,
+        desc="Running tokenizer on train dataset",
+    )
+    exit()
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
@@ -442,13 +520,15 @@ def main():
             
         return features
 
+
+
     if training_args.do_train:
         train_dataset = datasets["train"].map(
             prepare_features,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             remove_columns=column_names,
-            load_from_cache_file=not data_args.overwrite_cache,
+            #load_from_cache_file=not data_args.overwrite_cache,
         )
 
     # Data collator
