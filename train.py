@@ -34,7 +34,7 @@ from transformers.tokenization_utils_base import BatchEncoding, PaddingStrategy,
 from transformers.trainer_utils import is_main_process
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 from transformers.file_utils import cached_property, torch_required, is_torch_available, is_torch_tpu_available
-from simcse.models import RobertaForCL, BertForCL
+from simcse.models import RobertaForCL, BertForCL, HierarchicalBert
 from simcse.trainers import CLTrainer
 
 logger = logging.getLogger(__name__)
@@ -387,7 +387,6 @@ def main():
         batched=True,
         desc="Running tokenizer on train dataset",
     )
-    exit()
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
@@ -521,15 +520,14 @@ def main():
         return features
 
 
-
-    if training_args.do_train:
-        train_dataset = datasets["train"].map(
-            prepare_features,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            remove_columns=column_names,
-            #load_from_cache_file=not data_args.overwrite_cache,
-        )
+    #if training_args.do_train:
+    #    train_dataset = datasets["train"].map(
+    #        prepare_features,
+    #        batched=True,
+    #        num_proc=data_args.preprocessing_num_workers,
+    #        remove_columns=column_names,
+    #        #load_from_cache_file=not data_args.overwrite_cache,
+    #    )
 
     # Data collator
     @dataclass
@@ -611,15 +609,7 @@ def main():
 
     data_collator = default_data_collator if data_args.pad_to_max_length else OurDataCollatorWithPadding(tokenizer)
 
-    trainer = CLTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-    )
-    trainer.model_args = model_args
-
+    t
     # Training
     if training_args.do_train:
         model_path = (
@@ -627,6 +617,18 @@ def main():
             if (model_args.model_name_or_path is not None and os.path.isdir(model_args.model_name_or_path))
             else None
         )
+        # bert = AutoModel.from_pretrained('bert-base-uncased')
+        # Init Classifier
+        model = AutoModelForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=10)
+        model.bert = HierarchicalBert(encoder=model.bert, max_segments=6, max_segment_length=128)
+        #trainer = MultilabelTrainer(model=model, train_dataset=train_dataset, tokenizer=tokenizer, )
+        trainer = CLTrainer(model=model, args=training_args,
+            train_dataset=train_dataset if training_args.do_train else None,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+        )
+        trainer.model_args = model_args
+
         train_result = trainer.train(model_path=model_path)
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
